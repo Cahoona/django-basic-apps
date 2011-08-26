@@ -3,6 +3,8 @@ import re
 from django import template
 from django.conf import settings
 from django.db import models
+from django.contrib.auth.models import User
+from django.db.models import Count
 
 Post = models.get_model('blog', 'post')
 Category = models.get_model('blog', 'category')
@@ -49,12 +51,56 @@ def get_latest_posts(parser, token):
     return LatestPosts(format_string, var_name)
 
 
-class BlogCategories(template.Node):
-    def __init__(self, var_name):
+class BlogAuthors(template.Node):
+    def __init__(self, var_name, show_unused=True):
         self.var_name = var_name
+        self.show_unused = show_unused
+
+    def render(self, context):
+        authors = User.objects.all()
+        if not self.show_unused:
+            authors = authors.annotate(post_count=Count('post'))\
+                .filter(post_count__gt=0).order_by('first_name', 'last_name')
+        context[self.var_name] = authors
+        return ''
+
+
+@register.tag
+def get_blog_authors(parser, token):
+    try:
+        tag_name, arg = token.contents.split(None, 1)
+    except ValueError:
+        raise template.TemplateSyntaxError, "%s tag requires arguments" % token.contents.split()[0]
+    m = re.search(r'as (\w+)', arg)
+    if not m:
+        raise template.TemplateSyntaxError, "%s tag had invalid arguments" % tag_name
+    var_name = m.groups()[0]
+    return BlogAuthors(var_name)
+
+
+@register.tag
+def get_blog_authors_used(parser, token):
+    try:
+        tag_name, arg = token.contents.split(None, 1)
+    except ValueError:
+        raise template.TemplateSyntaxError, "%s tag requires arguments" % token.contents.split()[0]
+    m = re.search(r'as (\w+)', arg)
+    if not m:
+        raise template.TemplateSyntaxError, "%s tag had invalid arguments" % tag_name
+    var_name = m.groups()[0]
+    return BlogAuthors(var_name, False)
+
+
+class BlogCategories(template.Node):
+    def __init__(self, var_name, show_unused=True):
+        self.var_name = var_name
+        self.show_unused = show_unused
 
     def render(self, context):
         categories = Category.objects.all()
+        if not self.show_unused:
+            categories = categories.annotate(post_count=Count('post'))\
+                .filter(post_count__gt=0)
         context[self.var_name] = categories
         return ''
 
@@ -63,14 +109,6 @@ class BlogCategories(template.Node):
 def get_blog_categories(parser, token):
     """
     Gets all blog categories.
-
-    Syntax::
-
-        {% get_blog_categories as [var_name] %}
-
-    Example usage::
-
-        {% get_blog_categories as category_list %}
     """
     try:
         tag_name, arg = token.contents.split(None, 1)
@@ -81,6 +119,22 @@ def get_blog_categories(parser, token):
         raise template.TemplateSyntaxError, "%s tag had invalid arguments" % tag_name
     var_name = m.groups()[0]
     return BlogCategories(var_name)
+
+
+@register.tag
+def get_blog_categories_used(parser, token):
+    """
+    Gets only the blog categories that contain posts.
+    """
+    try:
+        tag_name, arg = token.contents.split(None, 1)
+    except ValueError:
+        raise template.TemplateSyntaxError, "%s tag requires arguments" % token.contents.split()[0]
+    m = re.search(r'as (\w+)', arg)
+    if not m:
+        raise template.TemplateSyntaxError, "%s tag had invalid arguments" % tag_name
+    var_name = m.groups()[0]
+    return BlogCategories(var_name, False)
 
 
 @register.filter
